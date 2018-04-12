@@ -1,6 +1,11 @@
 <?php
 
 /**
+ * @author Semyon Dragunov <sam.dragunov@gmail.com>
+ * https://github.com/SemyonDragunov
+ */
+
+/**
  * Class sl7_event entities.
  */
 class SL7Event extends Entity {

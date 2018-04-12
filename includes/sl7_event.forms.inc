@@ -3,6 +3,9 @@
 /**
  * @file
  *  Форма и функции регистрации на мероприятие.
+ *  
+ * @author Semyon Dragunov <sam.dragunov@gmail.com>
+ * https://github.com/SemyonDragunov
  */
 
 /**

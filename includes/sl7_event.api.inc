@@ -3,6 +3,9 @@
 /**
  * @file
  * Api for sl7_event entities.
+ * 
+ * @author Semyon Dragunov <sam.dragunov@gmail.com>
+ * https://github.com/SemyonDragunov
  */
 
 function sl7_event_create($values = array()) {
