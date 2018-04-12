@@ -1,0 +1,708 @@
+<?php
+
+/**
+ * @file
+ * SL7 event module.
+ * 
+ * @author Semyon Dragunov <sam.dragunov@gmail.com>
+ * https://github.com/SemyonDragunov
+ *
+ * @todo Разные города.
+ * @todo Разный тип участия.
+ * @todo Закрытые мероприятия.
+ */
+
+define('SL7_EVENT_ADMIN_PATH', SL7_CONTROL_PANEL_ADMIN_PATH . '/event');
+define('SL7_EVENT_PATH', 'event');
+
+require_once(__DIR__ . '/includes/sl7_event.api.inc');
+require_once(__DIR__ . '/includes/sl7_event.forms.inc');
+
+/**
+ * Implement hook_menu().
+ */
+function sl7_event_menu() {
+
+  $items[SL7_EVENT_ADMIN_PATH] = array(
+    'title' => 'Мероприятия',
+    'position' => 'left',
+    'page callback' => 'system_admin_menu_block_page',
+    'access callback' => 'sl7_control_panel_access',
+    'access arguments' => array('view'),
+    'file path' => drupal_get_path('module', 'system'),
+    'file' => 'system.admin.inc',
+  );
+
+  $items[SL7_EVENT_ADMIN_PATH . '/manage'] = array(
+    'title' => 'Управление мероприятиями',
+    'description' => 'Просмотр и управление мероприятиями.',
+    'page callback'    => 'views_embed_view',
+    'page arguments'   => array('sl7_event', 'manage_page'),
+    'access arguments' => array('administer sl7_event'),
+    'type'             => MENU_NORMAL_ITEM,
+    'menu_name' => 'sl7-control-panel',
+    'weight'           => -20,
+  );
+
+  $items[SL7_EVENT_ADMIN_PATH . '/manage/view'] = array(
+    'title'  => t('View'),
+    'type'   => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+
+  $items[SL7_EVENT_ADMIN_PATH . '/manage/add'] = array(
+    'title' => 'Создать',
+    'description' => 'Создать мероприятие.',
+    'page callback'    => 'sl7_event_get_edit_form',
+    'page arguments'   => array('create', NULL),
+    'access callback'  => 'sl7_event_access',
+    'access arguments' => array('manage'),
+    'type'             => MENU_LOCAL_TASK,
+    'weight'           => -9,
+    'file'             => 'sl7_event.ui.inc',
+    'file path'        => drupal_get_path('module', 'sl7_event') . '/includes',
+  );
+
+  $items[SL7_EVENT_ADMIN_PATH . '/category'] = array(
+    'title' => 'Управление категориями',
+    'description' => 'Управление категориями мероприятий.',
+    'page callback' => 'drupal_goto',
+    'page arguments' => array('admin/structure/taxonomy/sl7_event_category'),
+    'access arguments' => array('administer taxonomy'),
+    'type' => MENU_NORMAL_ITEM,
+    'weight' => -9,
+  );
+
+  $items['user/%user/event'] = array(
+    'title' => 'Мероприятия',
+    'description' => 'Мероприятия в которых Вы участвуете.',
+    'page callback' => 'views_embed_view',
+    'page arguments' => array('sl7_event', 'user_page'),
+    'access callback' => 'sl7_event_access_user_page',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['ajax/sl7_event/flag/%/%flag/%/%'] = array(
+    'title' => 'Flag',
+    'page callback' => 'sl7_event_flag_sl7_event_reg_participant',
+    'page arguments' => array(3, 4, 5, 6),
+    'access arguments' => array('sl7_event mark'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implement hook_permission().
+ */
+function sl7_event_permission() {
+  return array(
+    'administer sl7_event' => array(
+      'title' => 'Управление мероприятиями',
+    ),
+    'sl7_event participation' => array(
+      'title' => 'Доступ к участию в мероприятиях',
+    ),
+    'sl7_event manage' => array(
+      'title' => 'Создание и изменение мероприятий',
+    ),
+    'sl7_event mark' => array(
+      'title' => 'Доступ к просмотру и пометке участников',
+    ),
+    'sl7_event delete' => array(
+      'title' => 'Удаление мероприятий',
+    ),
+  );
+}
+
+/**
+ * Implement hook_entity_info().
+ */
+function sl7_event_entity_info() {
+
+  $return['sl7_event'] = array(
+    'label' => 'Мероприятие',
+    'entity class' => 'SL7Event',
+    'controller class' => 'SL7EventController',
+    'metadata controller class' => 'SL7EventMetadataController',
+    'extra fields controller class' => 'SL7EventExtraFieldsController',
+    'views controller class' => 'SL7EventViewsController',
+    'base table' => 'sl7_event',
+    'fieldable' => TRUE,
+    'static cache' => TRUE,
+    'label callback' => 'sl7_event_label',
+    'uri callback' => 'sl7_event_uri',
+    'creation callback' => 'sl7_event_create',
+    'access callback' => 'sl7_event_access',
+    'load hook' => 'sl7_event_load',
+    'module' => 'sl7_event',
+    'entity keys' => array(
+      'id' => 'eid',
+      'label' => 'label',
+    ),
+    'admin ui' => array(
+      'path' => SL7_EVENT_PATH,
+      'file' => 'includes/sl7_event.ui.inc',
+      'controller class' => 'SL7EventUIController',
+      'menu wildcard' => '%sl7_event',
+    ),
+    'bundles' => array(
+      'sl7_event' => array(
+        'label' => 'Мероприятие',
+        'admin' => array(
+          'path' => SL7_EVENT_ADMIN_PATH . '/manage',
+          'access arguments' => array('administer sl7_event'),
+        ),
+      ),
+    ),
+    'view modes' => array(
+      'teaser' => array(
+        'label' => 'Анонс',
+        'custom settings' => FALSE,
+      ),
+    ),
+  );
+
+  if (module_exists('entitycache')) {
+    $return['sl7_event']['field cache'] = FALSE;
+    $return['sl7_event']['entity cache'] = TRUE;
+  }
+
+  return $return;
+}
+
+/**
+ * Implements hook_flush_caches().
+ */
+function sl7_event_flush_caches() {
+  return array('cache_entity_sl7_event');
+}
+
+/**
+ * Implement hook_theme().
+ */
+function sl7_event_theme() {
+  $items = array(
+    'sl7_event__teaser' => array(
+      'variables' => array('element' => null),
+      'template' => 'templates/sl7-event--teaser'
+    ),
+    'sl7_event__full' => array(
+      'variables' => array('element' => null),
+      'template' => 'templates/sl7-event--full'
+    ),
+    'flag__sl7_event_reg_participant' => array(
+      'template' => 'templates/flag--sl7-event-reg-participant',
+      'variables' => array(
+        'flag' => NULL,
+        'action' => NULL,
+        'entity_id' => NULL,
+        'uid' => NULL,
+        'after_flagging' => FALSE,
+        'needs_wrapping_element' => FALSE,
+        'errors' => array(),
+      ),
+    ),
+  );
+
+  foreach ($items as &$item) {
+    if (!isset($item['file'])) {
+      $item['file'] = 'templates/theme.inc';
+    }
+  }
+
+  return $items;
+}
+
+/**
+ * Implement hook_admin_paths().
+ */
+function sl7_event_admin_paths() {
+  $paths = array(
+    'event/*/*' => TRUE,
+    'event/add' => TRUE,
+  );
+
+  return $paths;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function sl7_event_block_info() {
+  $blocks['front_page'] = array(
+    'info' => 'Мероприятия',
+    'status' => 1,
+    'region' => 'front',
+    'weight' => 10,
+    'visibility' => BLOCK_VISIBILITY_NOTLISTED,
+  );
+
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_configure().
+ */
+function sl7_event_block_configure($delta = '') {
+  $form = array();
+
+  if ($delta == 'front_page') {
+    $form['view_all'] = array(
+      '#type' => 'checkbox',
+      '#title' => 'Кнопка "Все мероприятия"',
+      '#default_value' => variable_get('sl7_event_view_all', 1),
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Implements hook_block_save().
+ */
+function sl7_event_block_save($delta = '', $edit = array()) {
+  if ($delta == 'front_page') {
+    variable_set('sl7_event_view_all', $edit['view_all']);
+  }
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function sl7_event_block_view($delta = '') {
+  $block = array();
+  $result = views_get_view_result('sl7_event', 'front_page');
+
+  if ($delta == 'front_page' && count($result) > 0) {
+    $block['subject'] = 'Мероприятия';
+    $block['content'] = array(
+      '#markup' => views_embed_view('sl7_event', 'front_page'),
+    );
+
+    if (variable_get('sl7_event_view_all', 1)) {
+      $output =   '<div class="content-center">';
+      $output .=    '<a href="/event" class="button">Все мероприятия</a>';
+      $output .=  '</div>';
+
+      $block['content']['#markup'] .= $output;
+    }
+  }
+
+  return $block;
+}
+
+/**
+ * Implement hook_preprocess_html().
+ */
+function sl7_event_preprocess_html(&$variables) {
+  // Установка meta tags на страницу с мероприятием.
+  if (arg(0) == 'event' && is_numeric(arg(1)) && !arg(2)) {
+    $event = current($variables['page']['content']['system_main']['sl7_event']);
+    $description = truncate_utf8(check_plain(strip_tags($event['sl7_event_body']['#items'][0]['value'])), 150, FALSE, TRUE);
+    $image_url = file_create_url($event['sl7_event_image']['#items'][0]['uri']);
+
+    drupal_add_html_head(array(
+      '#type' => 'html_tag',
+      '#tag' => 'meta',
+      '#attributes' => array(
+        'name' => 'description',
+        'content' => $description,
+      )
+    ), 'description');
+
+    drupal_add_html_head(array(
+      '#type' => 'html_tag',
+      '#tag' => 'link',
+      '#attributes' => array(
+        'rel' => 'image_src',
+        'href' => $image_url,
+      )
+    ), 'image_src');
+  }
+}
+
+/**
+ * Implement hook_preprocess_page().
+ */
+function sl7_event_preprocess_page(&$vars) {
+  if (arg(0) == 'event' && is_numeric(arg(1)) && arg(2) == 'participants') {
+    drupal_add_js(drupal_get_path('module', 'sl7_event') . '/js/sl7_event.reload_participants.js');
+  }
+
+  // Вставка views в термины таксономии.
+  if (arg(0) == 'taxonomy' && arg(1) == 'term' && is_numeric(arg(2)) && arg(3) != 'edit') {
+    $term = taxonomy_term_load(arg(2));
+    $vocab = taxonomy_vocabulary_load($term->vid);
+
+    if ($vocab->machine_name == 'sl7_event_category') {
+      $views_sl7_event = array(
+        'view_sl7_event_calendar' => array(
+          '#markup' => views_embed_view('sl7_event_calendar',  'mount_taxonomy', NULL, arg(2)),
+          '#weight' => 1,
+        ),
+        'view_sl7_event' => array(
+          '#prefix' => '<div id="sl7-event-taxonomy">',
+          '#suffix' => '</div>',
+          '#markup' => views_embed_view('sl7_event',  'taxonomy_page', arg(2)),
+          '#weight' => 2,
+        ),
+      );
+      $vars['page']['content']['system_main'] = array_merge($views_sl7_event, $vars['page']['content']['system_main']);
+
+      unset($vars['page']['content']['system_main']['nodes']);
+    }
+  }
+}
+
+/**
+ * Menu callback for (un)flagging a sl7_event in participant page.
+ */
+function sl7_event_flag_sl7_event_reg_participant($action, $flag, $entity_id, $uid) {
+  $account = user_load($uid);
+  $flag->flag($action, $entity_id, $account, TRUE);
+  $flag->link_type = 'toggle';
+  print drupal_json_encode(
+    array(
+      'status' => TRUE,
+      'newLink' => $flag->theme($flag->is_flagged($entity_id, $uid) ? 'unflag' : 'flag', $entity_id, array(
+        'after_flagging' => TRUE,
+        'uid' => $uid,
+      )),
+      'flagSuccess' => TRUE,
+      'contentId' => $entity_id,
+      'entityType' => $flag->entity_type,
+      'flagName' => $flag->name,
+      'flagStatus' => $flag->is_flagged($entity_id, $uid) ? 'flagged' : 'unflagged',
+    )
+  );
+  drupal_exit();
+}
+
+/**
+ * Создание флага.
+ */
+function sl7_event_flag_default_flags() {
+  $flags = array();
+  $flags[] = array(
+    'entity_type' => 'sl7_event',
+    'name' => 'sl7_event_reg_participant',
+    'title' => 'Регистриция участников',
+    'global' => FALSE,
+    'types' => array(0 => 'sl7_event'),
+    'flag_short' => 'Зарегистрировать',
+    'flag_long' => 'Участник прибыл',
+    'flag_message' => 'Участник помечен как прибывший.',
+    'unflag_short' => 'Убрать регистрацию',
+    'unflag_long' => 'Участник отбыл',
+    'unflag_message' => 'Участник покинул мероприятие.',
+    'show_on_page' => FALSE,
+    'show_on_teaser' => FALSE,
+    'show_on_form' => FALSE,
+    'show_as_field' => FALSE,
+    'show_in_links' => array ('token' => 0),
+    'status' => TRUE,
+    'link_type' => 'toggle',
+    'api_version' => 3,
+    'locked' => array('show_on_teaser', 'show_on_page', 'show_on_form', 'name', 'types', 'global'),
+  );
+
+  return $flags;
+}
+
+function sl7_event_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'sl7_event') . '/views',
+    'template path' => drupal_get_path('module', 'sl7_event') . '/templates',
+  );
+}
+
+/**
+ * Implements hook_views_default_views().
+ */
+function sl7_event_views_default_views() {
+  $files = file_scan_directory(drupal_get_path('module', 'sl7_event'). '/views', '/.view.inc/');
+  foreach ($files as $filepath => $file) {
+    require $filepath;
+    if (isset($view)) {
+      $views[$view->name] = $view;
+    }
+  }
+
+  if ($views) {
+    return $views;
+  }
+}
+
+/**
+ * Implementation of hook_ctools_plugin_api().
+ */
+function sl7_event_ctools_plugin_api($owner, $api) {
+  if ($owner == 'path_breadcrumbs' && $api == 'path_breadcrumbs') {
+    return array('version' => 1);
+  }
+}
+
+/**
+ * Implements hook_path_breadcrumbs_settings_info().
+ */
+function sl7_event_path_breadcrumbs_settings_info() {
+  $export = array();
+
+  $path_breadcrumb = new stdClass();
+  $path_breadcrumb->api_version = 1;
+  $path_breadcrumb->machine_name = 'sl7_event_page';
+  $path_breadcrumb->name = 'Мероприятия - страница';
+  $path_breadcrumb->path = 'event/%event';
+  $path_breadcrumb->data = array(
+    'titles' => array(
+      0 => 'Мероприятия',
+      1 => '!page_title',
+    ),
+    'paths' => array(
+      0 => 'event',
+      1 => '<none>',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(
+      'event' => array(
+        'position' => 1,
+        'argument' => 'entity_id:sl7_event',
+        'settings' => array(
+          'identifier' => 'Мероприятие: ID',
+        ),
+      ),
+    ),
+    'access' => array(),
+  );
+  $path_breadcrumb->weight = 0;
+  $export['sl7_event_page'] = $path_breadcrumb;
+
+  $path_breadcrumb = new stdClass();
+  $path_breadcrumb->api_version = 1;
+  $path_breadcrumb->machine_name = 'sl7_event_front';
+  $path_breadcrumb->name = 'Мероприятия - главная';
+  $path_breadcrumb->path = 'event';
+  $path_breadcrumb->data = array(
+    'titles' => array(
+      0 => '!page_title',
+    ),
+    'paths' => array(
+      0 => '<none>',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(),
+    'access' => array(),
+  );
+  $path_breadcrumb->weight = 0;
+  $export['sl7_event_front'] = $path_breadcrumb;
+
+  $path_breadcrumb = new stdClass();
+  $path_breadcrumb->api_version = 1;
+  $path_breadcrumb->machine_name = 'sl7_event_category';
+  $path_breadcrumb->name = 'Мероприятия - категории';
+  $path_breadcrumb->path = 'taxonomy/term/%tid';
+  $path_breadcrumb->data = array(
+    'titles' => array(
+      0 => 'Мероприятия',
+      1 => '%tid:pb-join:name',
+    ),
+    'paths' => array(
+      0 => 'event',
+      1 => '%tid:pb-join:url',
+    ),
+    'home' => 1,
+    'translatable' => 0,
+    'arguments' => array(
+      'tid' => array(
+        'position' => 2,
+        'argument' => 'term',
+        'settings' => array(
+          'identifier' => 'Taxonomy term: ID',
+          'input_form' => 'tid',
+          'vids' => array(
+            20 => 0,
+            2 => 0,
+          ),
+          'breadcrumb' => 1,
+          'transform' => 0,
+        ),
+      ),
+    ),
+    'access' => array(
+      'plugins' => array(
+        0 => array(
+          'name' => 'term_vocabulary',
+          'settings' => array(
+            'machine_name' => array(
+              'sl7_event_category' => 'sl7_event_category',
+            ),
+          ),
+          'context' => 'tid',
+          'not' => FALSE,
+        ),
+      ),
+      'logic' => 'and',
+    ),
+  );
+  $path_breadcrumb->weight = 0;
+  $export['sl7_event_category'] = $path_breadcrumb;
+
+  return $export;
+}
+
+/**
+ * Implementation of hook_image_default_styles().
+ */
+function sl7_event_image_default_styles() {
+  $styles = array();
+
+  $styles['sl7_event_teaser'] = array(
+    'label' => 'Мероприятие - анонс',
+    'effects' => array(
+      array(
+        'name' => 'canvasactions_aspect',
+        'data' => array(
+          'portrait' => 'sl7_event_teaser_portrait',
+          'landscape' => 'sl7_event_teaser_landscape',
+          'ratio_adjustment' => 1
+        ),
+        'weight' => 1
+      ),
+      array(
+        'name' => 'canvasactions_definecanvas',
+        'data' => array(
+          'RGB' => array('HEX' => ''),
+          'under' => 1,
+          'exact' => array(
+            'width' => 500,
+            'height' => 400,
+            'xpos' => 'center',
+            'ypos' => 'center'
+          ),
+          'relative' => array(
+            'leftdiff' => '',
+            'rightdiff' => '',
+            'topdiff' => '',
+            'bottomdiff' => ''
+          )
+        ),
+        'weight' => 2,
+      )
+    ),
+  );
+  $styles['sl7_event_teaser_landscape'] = array(
+    'label' => 'Мероприятие - анонс (Альбомная)',
+    'effects' => array(
+      array(
+        'name' => 'image_scale',
+        'data' => array('height' => 300, 'width' => '', 'upscale' => 0),
+        'weight' => 0,
+      ),
+    ),
+  );
+  $styles['sl7_event_teaser_portrait'] = array(
+    'label' => 'Мероприятие - анонс (Портретная)',
+    'effects' => array(
+      array(
+        'name' => 'image_scale',
+        'data' => array('height' => '', 'width' => 300, 'upscale' => 0),
+        'weight' => 0,
+      ),
+    ),
+  );
+
+  return $styles;
+}
+
+/**
+ * Metadata fields.
+ */
+
+function sl7_event_metadata_seats($event, array $options, $name, $entity_type) {
+  $seats = sl7_event_get_remaining_seats($event);
+
+  if ($seats == 0) {
+    return 'Неограниченно';
+  }
+
+  return $seats;
+}
+
+function sl7_event_metadata_amount($event, array $options, $name, $entity_type) {
+  if ($event->free == 1) {
+    return 'Бесплатно';
+  }
+  return $event->amount . ' руб.';
+}
+
+/**
+ * Implementation of hook_rules_event_info().
+ */
+function sl7_event_rules_event_info() {
+  return array(
+    'sl7_event_after_participate' => array(
+      'label' => 'После подписки на участие',
+      'module' => 'sl7_event',
+      'group' => 'Мероприятие',
+      'variables' => array(
+        'participant' => array('type' => 'user', 'label' => 'Участник.'),
+        'sl7_event' => array('type' => 'sl7_event', 'label' => 'Мероприятие.'),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_default_rules_configuration().
+ */
+function sl7_event_default_rules_configuration() {
+  $items = array();
+
+  $items['rules_sl7_event_notification_participant'] = entity_import('rules_config', '{ "rules_sl7_event_notification_participant" : {
+    "LABEL" : "\u041e\u043f\u043e\u0432\u0435\u0449\u0435\u043d\u0438\u0435 \u043e\u0431 \u0443\u0447\u0430\u0441\u0442\u0438\u0438 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 (\u0411\u0435\u0441\u043f\u043b\u0430\u0442\u043d\u043e\u0435)",
+    "PLUGIN" : "reaction rule",
+    "OWNER" : "rules",
+    "REQUIRES" : [ "rules", "sl7_event" ],
+    "ON" : { "sl7_event_after_participate" : [] },
+    "IF" : [ { "data_is" : { "data" : [ "sl7-event:free" ], "value" : "1" } } ],
+    "DO" : [
+      { "mail" : {
+          "to" : "[participant:mail]",
+          "subject" : "\u0412\u044b \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u0435\u0442\u0435 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 \u0022[sl7-event:label]\u0022",
+          "message" : "\u0412\u044b \u0440\u0435\u0448\u0438\u043b\u0438 \u043f\u0440\u0438\u043d\u044f\u0442\u044c \u0443\u0447\u0430\u0441\u0442\u0438\u0435 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 \u0022[sl7-event:label]\u0022.\r\n\r\n\u041c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0435 \u0441\u043e\u0441\u0442\u043e\u0438\u0442\u0441\u044f \u0432 [sl7-event:sl7-event-date:value].\r\n\r\n\u041f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435 \u043d\u0430 [sl7-event:url]\r\n\r\n\u00ab[site:name]\u00bb",
+          "from" : "[site:mail]",
+          "language" : [ "participant:language" ]
+        }
+      }
+    ]
+  }
+}');
+
+  $items['rules_sl7_event_notification_participant_nonfree'] = entity_import('rules_config', '{ "rules_sl7_event_notification_participant_nonfree" : {
+    "LABEL" : "\u041e\u043f\u043e\u0432\u0435\u0449\u0435\u043d\u0438\u0435 \u043e\u0431 \u0443\u0447\u0430\u0441\u0442\u0438\u0438 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 (\u041f\u043b\u0430\u0442\u043d\u043e\u0435)",
+    "PLUGIN" : "reaction rule",
+    "OWNER" : "rules",
+    "REQUIRES" : [ "rules", "sl7_event" ],
+    "ON" : { "sl7_event_after_participate" : [] },
+    "IF" : [ { "data_is" : { "data" : [ "sl7-event:free" ], "value" : "0" } } ],
+    "DO" : [
+      { "mail" : {
+          "to" : "[participant:mail]",
+          "subject" : "\u0412\u044b \u0443\u0447\u0430\u0441\u0442\u0432\u0443\u0435\u0442\u0435 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 \u0022[sl7-event:label]\u0022",
+          "message" : "\u0412\u044b \u0440\u0435\u0448\u0438\u043b\u0438 \u043f\u0440\u0438\u043d\u044f\u0442\u044c \u0443\u0447\u0430\u0441\u0442\u0438\u0435 \u0432 \u043c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0438 \u0022[sl7-event:label]\u0022.\r\n\r\n\u041c\u0435\u0440\u043e\u043f\u0440\u0438\u044f\u0442\u0438\u0435 \u0441\u043e\u0441\u0442\u043e\u0438\u0442\u0441\u044f \u0432 [sl7-event:sl7-event-date:value].\r\n\r\n\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u0435 \u0443\u0447\u0430\u0441\u0442\u0438\u0435 \u043f\u043e \u0441\u0441\u044b\u043b\u043a\u0435, \u0447\u0442\u043e\u0431\u044b \u0433\u0430\u0440\u0430\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0435\u0431\u0435 \u043c\u0435\u0441\u0442\u043e: [sl7-event:url]\r\n\u041e\u0442\u0441\u043b\u0435\u0436\u0438\u0432\u0430\u043d\u0438\u0435 \u0432\u0441\u0435\u0445 \u043f\u043b\u0430\u0442\u0435\u0436\u0435\u0439 \u043c\u043e\u0436\u043d\u043e \u043f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u044c \u0432 \u043b\u0438\u0447\u043d\u043e\u043c \u043a\u0430\u0431\u0438\u043d\u0435\u0442\u0435, \u0432 \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u041f\u043b\u0430\u0442\u0435\u0436\u0438.\r\n\r\n\u00ab[site:name]\u00bb",
+          "from" : "[site:mail]",
+          "language" : [ "participant:language" ]
+        }
+      }
+    ]
+  }
+}');
+
+  return $items;
+}

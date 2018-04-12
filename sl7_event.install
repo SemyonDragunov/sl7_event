@@ -1,0 +1,491 @@
+<?php
+
+/**
+ * @author Semyon Dragunov <sam.dragunov@gmail.com>
+ * https://github.com/SemyonDragunov
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function sl7_event_schema() {
+  $schema['sl7_event'] = array(
+    'description' => 'The SL7 event table.',
+    'fields' => array(
+      'eid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'Primary Key: Event ID.',
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'not null' => TRUE,
+        'length' => 255,
+        'description' => 'Title of event.',
+      ),
+      'free' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 1,
+        'description' => 'Free event?',
+      ),
+      'seats' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Quantity participants.',
+      ),
+      'amount' => array(
+        'type' => 'numeric',
+        'size' => 'normal',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'precision' => 12,
+        'scale' => 2,
+        'description' => 'Amount of event.'
+      ),
+      'uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid that owns this event; initially, this is the user that created it.',
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the event was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'changed' => array(
+        'description' => 'The Unix timestamp when the event was most recently saved.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      )
+    ),
+    'indexes' => array(
+      'eid' => array('eid'),
+    ),
+    'foreign keys' => array(
+      'users' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+      'profile' => array(
+        'table' => 'profile',
+        'columns' => array('profile' => 'type'),
+      ),
+    ),
+    'primary key' => array('eid'),
+  );
+
+  // Optional cache table for entitycache support.
+  $schema['cache_entity_sl7_event'] = drupal_get_schema_unprocessed('system', 'cache');
+  $schema['cache_entity_sl7_event']['description'] = 'Cache table used to sl7_event entity records.';
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function sl7_event_install() {
+  $t = get_t();
+
+  // Add rights.
+  if ($role_manager = user_role_load_by_name('manager')) {
+    $editor_permissions = array(
+      'sl7_event manage' => TRUE,
+      'sl7_event mark' => TRUE,
+    );
+    user_role_change_permissions($role_manager->rid, $editor_permissions);
+  }
+  user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('sl7_event participation'));
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('sl7_event participation'));
+
+  // Set path breadcrumbs settings.
+  variable_set('path_breadcrumbs_home_link_title', 'Главная');
+
+  // Set pathauto pattern.
+  variable_set('pathauto_taxonomy_term_sl7_event_category_pattern', 'event-category/[term:name]');
+
+  // Create taxonomy vocabulary.
+  $vocab = (object) array(
+    'name' => 'Категории мероприятий',
+    'description' => 'Категории мероприятий.',
+    'machine_name' => 'sl7_event_category',
+  );
+  if (!taxonomy_vocabulary_machine_name_load($vocab->machine_name)) {
+    taxonomy_vocabulary_save($vocab);
+  }
+
+  // Create fields.
+  $fields = array(
+    array(
+      'field_name' => 'sl7_event_category',
+      'type' => 'taxonomy_term_reference',
+      'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+      'locked' => TRUE,
+      'settings' => array(
+        'allowed_values' => array(
+          array(
+            'vocabulary' => $vocab->machine_name,
+            'parent' => 0
+          ),
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_profile',
+      'type' => 'entityreference',
+      'cardinality' => 1,
+      'locked' => TRUE,
+      'settings' => array(
+        'target_type' => 'profile2_type',
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_participants',
+      'type' => 'entityreference',
+      'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+      'locked' => TRUE,
+      'settings' => array(
+        'target_type' => 'user',
+        'handler_settings' => array('target_bundles' => NULL),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_date',
+      'type' => 'datetime',
+      'cardinality' => 1,
+      'locked' => TRUE,
+      'settings' => array(
+        'todate' => 'optional'
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_body',
+      'type' => 'text_long',
+      'cardinality' => 1,
+      'translatable' => '1',
+      'module' => 'text',
+      'locked' => TRUE,
+      'foreign keys' => array(
+        'format' => array(
+          'columns' => array(
+            'format' => 'format',
+          ),
+          'table' => 'filter_format',
+        ),
+      ),
+      'indexes' => array(
+        'format' => array(
+          0 => 'format',
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_image',
+      'type' => 'image',
+      'cardinality' => 1,
+      'module' => 'image',
+      'locked' => TRUE,
+      'settings' => array(
+        'uri_scheme' => 'public',
+        'default_image' => 0,
+      ),
+      'foreign keys' => array(
+        'fid' => array(
+          'columns' => array(
+            'fid' => 'fid',
+          ),
+          'table' => 'file_managed',
+        ),
+      ),
+      'indexes' => array(
+        'fid' => array(
+          0 => 'fid',
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_map',
+      'type' => 'geofield',
+      'cardinality' => 1,
+      'module' => 'geofield',
+      'locked' => TRUE,
+    ),
+    array(
+      'field_name' => 'sl7_event_extra_address',
+      'type' => 'text',
+      'cardinality' => 1,
+      'module' => 'text',
+      'locked' => TRUE,
+    ),
+  );
+  foreach ($fields as $field) {
+    $exists = db_query("SELECT id FROM {field_config} WHERE field_name=:field_name", array(':field_name' => $field['field_name']))->fetchField();
+    if (!$exists) {
+      field_create_field($field);
+    }
+  }
+
+  // Create instances for fields
+  $instances = array(
+    array(
+      'field_name' => 'sl7_event_category',
+      'description' => '<a href="/admin/structure/taxonomy/sl7_event_category" target="_blank">Управление категориями.</a>',
+      'entity_type' => 'sl7_event',
+      'label' => 'Категория',
+      'bundle' => 'sl7_event',
+      'widget' => array(
+        'type' => 'options_select',
+        'weight' => 4,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'hidden',
+          'type' => 'taxonomy_term_reference_plain',
+          'weight' => 2,
+        ),
+        'teaser' => array(
+          'label' => 'hidden',
+          'type' => 'taxonomy_term_reference_plain',
+          'weight' => 2,
+        )
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_profile',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'label' => 'Профиль',
+      'description' => 'Укажите в какой профиль будут заноситься данные участников. <a href="/admin/structure/profiles" target="_blank">Управление профилями.</a>',
+      'required' => TRUE,
+      'settings' => array(
+        'target_type' => 'profile2',
+      ),
+      'widget' => array(
+        'type' => 'options_select',
+        'module' => 'options',
+        'weight' => 9,
+      ),
+      'display' => array(
+        'default' => array('type' => 'hidden'),
+        'teaser' => array('type' => 'hidden'),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_participants',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'label' => 'Участники',
+      'description' => 'Участники мероприятия.',
+      'required' => TRUE,
+      'settings' => array(
+        'target_type' => 'user',
+        'handler_settings' => array('target_bundles' => NULL),
+      ),
+      'widget' => array(
+        'type' => 'options_select',
+        'module' => 'options',
+      ),
+      'display' => array(
+        'default' => array('type' => 'hidden'),
+        'teaser' => array('type' => 'hidden'),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_date',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'required' => TRUE,
+      'label' => 'Дата проведения',
+      'widget' => array(
+        'type' => 'date_popup',
+        'weight' => 5,
+        'settings' => array(
+          'increment' => 1,
+          'year_range' => '-10:+10',
+        ),
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'date_default',
+          'weight' => 3,
+          'settings' => array('format_type' => SL7_DATE_TYPE_WEEKDAY_HOUR),
+          'module' => 'date',
+        ),
+        'teaser' => array(
+          'label' => 'inline',
+          'type' => 'date_default',
+          'weight' => 3,
+          'settings' => array('format_type' => SL7_DATE_TYPE_HOUR),
+          'module' => 'date',
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_body',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'required' => TRUE,
+      'label' => 'Описание',
+      'format' => 'filter_html',
+      'widget' => array(
+        'settings' => array(
+          'rows' => '5',
+        ),
+        'type' => 'text_textarea',
+        'weight' => 2,
+      ),
+      'type' => 'text_long',
+      'display' => array(
+        'default' => array(
+          'label' => 'hidden',
+          'settings' => array(),
+          'type' => 'text_default',
+          'weight' => 6,
+        ),
+        'teaser' => array(
+          'label' => 'hidden',
+          'type' => 'text_trimmed',
+          'settings' => array('trim_length' => 230),
+          'weight' => 6,
+        ),
+      ),
+      'settings' => array(
+        'text_processing' => '1',
+        'user_register_form' => FALSE,
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_image',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'required' => TRUE,
+      'label' => 'Изображение',
+      'settings' => array(
+        'max_filesize' => 1024*1024*2,
+        'min_resolution' => '500x400',
+        'file_extensions' => 'png gif jpg jpeg',
+        'file_directory' => 'sl7_event',
+      ),
+      'widget' => array(
+        'type' => 'image_image',
+        'module' => 'image',
+        'weight' => 3,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'hidden',
+          'type' => 'image',
+          'settings' => array(
+            'image_style' => 'sl7_event_teaser'
+          ),
+          'weight' => 1,
+        ),
+        'teaser' => array(
+          'label' => 'hidden',
+          'type' => 'image',
+          'settings' => array(
+            'image_style' => 'sl7_event_teaser'
+          ),
+          'weight' => 1,
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_map',
+      'description' => 'Укажите метку. Или найдите адрес через поиск.',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'label' => 'Карта',
+      'required' => TRUE,
+      'widget' => array(
+        'type' => 'geofield_ymap',
+        'module' => 'geofield_ymap',
+        'weight' => 11,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'hidden',
+          'type' => 'geofield_ymap',
+          'settings' => array(
+            'map_auto_centering' => TRUE,
+            'map_auto_zooming' => TRUE,
+          ),
+          'module' => 'geofield_ymap',
+          'weight' => 7,
+        ),
+        'teaser' => array(
+          'type' => 'hidden'
+        ),
+      ),
+    ),
+    array(
+      'field_name' => 'sl7_event_extra_address',
+      'description' => 'Если необходимо подробнее указать местоположение мероприятия, то впишите его сюда. <b>Не пищите сюда адрес. Он устанавливается через карту.</b><br /><i>Например: Вход с торца. Офис 202.</i>',
+      'entity_type' => 'sl7_event',
+      'bundle' => 'sl7_event',
+      'label' => 'Дополнение адреса',
+      'widget' => array(
+        'type' => 'text_textfield',
+        'module' => 'text',
+        'weight' => 12,
+      ),
+      'display' => array(
+        'default' => array('type' => 'hidden'),
+        'teaser' => array('type' => 'hidden'),
+      ),
+    ),
+  );
+  foreach ($instances as $instance) {
+    $exists = db_query("SELECT id FROM {field_config_instance} WHERE field_name=:field_name AND entity_type=:entity_type AND bundle=:bundle", array(':field_name' => $instance['field_name'], ':entity_type' => $instance['entity_type'], ':bundle' => $instance['bundle']))->fetchField();
+    if (!$exists) {
+      field_create_instance($instance);
+    }
+  }
+
+  // Fix bug #1387268
+  if (!db_table_exists('cache_entity_profile2')) {
+    $schema = drupal_get_schema_unprocessed('system', 'cache');
+    $schema['description'] = "Cache table used to store profile2 entity records.";
+    db_create_table('cache_entity_profile2', $schema);
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function sl7_event_uninstall() {
+  // Удаление полей.
+  field_attach_delete_bundle('sl7_event', 'sl7_event');
+  db_delete('field_config_instance')->condition('entity_type', 'sl7_event')->execute();
+  db_delete('field_config')->condition('field_name', 'sl7_event_%', 'LIKE')->execute();
+
+  // Удаление таксономии.
+  $vocab = taxonomy_vocabulary_machine_name_load('sl7_event_category');
+  taxonomy_vocabulary_delete($vocab->vid);
+
+  // Удаление views.
+  if ($view = views_get_view('sl7_event')) {
+    $view->delete();
+  }
+
+  // Delete variables.
+  $result = db_select('variable', 'v')
+    ->fields('v', array('name'))
+    ->condition('name', 'sl7_event_%', 'LIKE')
+    ->execute();
+
+  foreach ($result as $row) {
+    variable_del($row->name);
+  }
+}

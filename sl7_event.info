@@ -1,0 +1,39 @@
+name = Мероприятия
+description = Создание и управление мероприятиями.
+package = SL7
+version = 7.x-1.0
+core = 7.x
+
+configure = admin/control-panel/event/settings
+
+files[] = includes/sl7_event.controller.inc
+files[] = includes/sl7_event.ui.inc
+files[] = views/handler/sl7_event_handler_sl7_event_check_paying.inc
+files[] = views/handler/sl7_event_handler_sl7_event_reg_participant.inc
+files[] = views/handler/sl7_event_handler_operations.inc
+
+dependencies[] = sl7_control_panel
+dependencies[] = entity
+dependencies[] = entity:entity_token
+dependencies[] = entitycache
+dependencies[] = date
+dependencies[] = date:date_api
+dependencies[] = date:date_popup
+dependencies[] = date:date_views
+dependencies[] = flag
+dependencies[] = profile2
+dependencies[] = profile2:profile2_page
+dependencies[] = geofield_ymap
+dependencies[] = geofield
+dependencies[] = views
+dependencies[] = views_data_export
+dependencies[] = calendar
+dependencies[] = ctools
+dependencies[] = rules
+dependencies[] = contextual
+dependencies[] = entityreference
+dependencies[] = imagecache_actions
+dependencies[] = imagecache_actions:imagecache_canvasactions
+dependencies[] = image
+dependencies[] = taxonomy
+dependencies[] = path_breadcrumbs
