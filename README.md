@@ -19,7 +19,7 @@
 * *Если хотите делать оплату онлайн.* [sl7_payment](https://github.com/SemyonDragunov/sl7_payment)
 * Способы оплаты.
 
-Для Drupal 7. PHP =< 5.4
+Для Drupal 7. PHP >= 5.4 & 7.
 
 Для продолжения разработки css смотрите bower.json
 
@@ -51,7 +51,7 @@ Required modules from SL7:
 * *If you want to make payment online.* [sl7_payment](https://github.com/SemyonDragunov/sl7_payment)
 * Payment methods.
 
-For Drupal 7. PHP =< 5.4
+For Drupal 7. PHP >= 5.4 & 7.
 
 To continue developing css, see bower.json
 
